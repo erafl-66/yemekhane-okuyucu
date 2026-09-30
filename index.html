@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Yemekhane Okuyucu</title>
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, sans-serif; text-align: center; padding: 15px; background: #f8f9fa; margin: 0; min-height: 100vh; }
+    h2 { color: #333; margin: 10px 0; font-size: 1.3em; }
+    .camera-container { position: relative; width: 100%; max-width: 350px; margin: 15px auto; background: #000; border-radius: 12px; overflow: hidden; aspect-ratio: 3/4; }
+    #video { width: 100%; height: 100%; object-fit: cover; }
+    #canvas { display: none; }
+    .scan-frame { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 200px; height: 200px; border: 3px solid #28a745; border-radius: 12px; box-shadow: 0 0 0 9999px rgba(0,0,0,0.5); pointer-events: none; }
+    .scan-frame::before { content: 'QR kodu bu çerçeveye oturtun'; position: absolute; top: -30px; left: 50%; transform: translateX(-50%); color: white; font-size: 12px; white-space: nowrap; }
+    #status { margin: 15px auto; font-size: 1.1em; font-weight: bold; padding: 12px; border-radius: 8px; max-width: 350px; min-height: 20px; }
+    .success { color: #155724; background: #d4edda; }
+    .error { color: #721c24; background: #f8d7da; }
+    .info { color: #004085; background: #cce5ff; }
+    .processing { color: #856404; background: #fff3cd; }
+    button { margin-top: 10px; padding: 15px 30px; font-size: 1.1em; background: #28a745; color: white; border: none; border-radius: 8px; width: 100%; max-width: 350px; font-weight: bold; }
+    button:active { background: #218838; }
+    button:disabled { background: #6c757d; }
+    .counter { margin-top: 15px; padding: 10px; background: #e9ecef; border-radius: 8px; font-size: 0.9em; color: #495057; }
+  </style>
+</head>
+<body>
+  <h2>🍽️ Yemekhane Okuyucu</h2>
+  <div class="camera-container">
+    <video id="video" autoplay playsinline webkit-playsinline muted></video>
+    <div class="scan-frame"></div>
+  </div>
+  <canvas id="canvas"></canvas>
+  <div id="status" class="info">Başlat butonuna basın</div>
+  <button id="btn" onclick="toggleScan()">📷 Taramayı Başlat</button>
+  <div class="counter">Bugün okunan: <b id="count">0</b> öğrenci</div>
+
+  <script>
+    const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyLat23k1wrMMHox3LE0PFZuJDufz9S8Y5J952usn-ooAG6TTur7BTO3UQGbZqH-5em/exec";
+    let video, canvas, context, scanning = false, animationId, scanCount = 0, lastScanTime = 0;
+    
+    function toggleScan() {
+      if (!scanning) startCamera();
+      else { stopCamera(); document.getElementById('btn').innerText = "📷 Taramayı Başlat"; document.getElementById('status').className = "info"; document.getElementById('status').innerText = "Durduruldu"; }
+    }
+    
+    function startCamera() {
+      const status = document.getElementById('status'), btn = document.getElementById('btn');
+      video = document.getElementById('video'); canvas = document.getElementById('canvas');
+      context = canvas.getContext('2d', { willReadFrequently: true });
+      status.className = "info"; status.innerText = "Kamera açılıyor...";
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 15 } }, audio: false })
+        .then(stream => { video.srcObject = stream; video.play().then(() => { scanning = true; btn.innerText = "⏹️ Durdur"; status.className = "info"; status.innerText = "QR kodu çerçeveye oturtun..."; scanLoop(); }).catch(err => { status.className = "error"; status.innerText = "Video hatası: " + err.message; }); })
+        .catch(err => { status.className = "error"; status.innerText = "❌ Kamera izni reddedildi! Ayarlar > Safari > Kamera > İzin Ver"; btn.innerText = " Taramayı Başlat"; });
+    }
+    
+    function stopCamera() { scanning = false; if (animationId) cancelAnimationFrame(animationId); if (video && video.srcObject) { video.srcObject.getTracks().forEach(t => t.stop()); video.srcObject = null; } }
+    
+    function scanLoop() {
+      if (!scanning) return;
+      const now = Date.now(); if (now - lastScanTime < 500) { animationId = requestAnimationFrame(scanLoop); return; }
+      if (video.readyState === video.HAVE_ENOUGH_DATA) {
+        const scale = Math.min(320 / video.videoWidth, 1); canvas.width = video.videoWidth * scale; canvas.height = video.videoHeight * scale;
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        try { const imageData = context.getImageData(0, 0, canvas.width, canvas.height); const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: "dontInvert" }); if (code) { lastScanTime = now; processQR(code.data); return; } } catch (err) {}
+      }
+      animationId = requestAnimationFrame(scanLoop);
+    }
+    
+    function processQR(text) {
+      const status = document.getElementById('status'), btn = document.getElementById('btn');
+      scanning = false; btn.disabled = true; status.className = "processing"; status.innerText = "⏳ Kaydediliyor...";
+      fetch(SCRIPT_URL, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: text }) })
+        .then(() => { scanCount++; document.getElementById('count').innerText = scanCount; status.className = "success"; status.innerText = "✅ " + text; if (navigator.vibrate) navigator.vibrate([100, 50, 100]); setTimeout(() => { scanning = true; btn.disabled = false; status.className = "info"; status.innerText = "Sıradaki öğrenci..."; scanLoop(); }, 1200); })
+        .catch(() => { status.className = "error"; status.innerText = "❌ Bağlantı hatası!"; setTimeout(() => { scanning = true; btn.disabled = false; scanLoop(); }, 2000); });
+    }
+  </script>
+</body>
+</html>

@@ -27,21 +27,20 @@
   </style>
 </head>
 <body>
-  <h2>🍽️ Yemekhane Okuyucu</h2>
+  <h2>️ Yemekhane Okuyucu</h2>
   <div class="camera-container">
     <video id="video" autoplay playsinline webkit-playsinline muted></video>
     <div class="scan-frame"></div>
   </div>
   <canvas id="canvas"></canvas>
   <div id="status" class="info">Başlat butonuna basın</div>
-  <button id="btn" onclick="toggleScan()"> Taramayı Başlat</button>
+  <button id="btn" onclick="toggleScan()">📷 Taramayı Başlat</button>
   <div class="counter">Bugün okunan: <b id="count">0</b> öğrenci</div>
 
   <script>
     const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbx1aOWCU3dhxu3WcQQn2GP5zAyrnQJYEg8_3d0K-p3IjNBIn5bx-nlsa6delQoTNWxb/exec";
     let video, canvas, context, scanning = false, animationId, scanCount = 0, lastScanTime = 0;
     
-    // Bip sesi çal
     function playBeep(frequency, duration) {
       try {
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -87,28 +86,32 @@
     
     function processQR(text) {
       const status = document.getElementById('status'), btn = document.getElementById('btn');
-      scanning = false; btn.disabled = true; status.className = "processing"; status.innerText = "⏳ Kaydediliyor...";
-      fetch(SCRIPT_URL, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: text }) })
-        .then(response => response.json().catch(() => ({status: "success", durum: "", metin: text})))
+      scanning = false; btn.disabled = true; status.className = "processing"; status.innerText = " Kaydediliyor...";
+      
+      // ÖNEMLİ DEĞİŞİKLİK: mode: 'cors' kullanıyoruz (no-cors değil)
+      fetch(SCRIPT_URL, { 
+        method: 'POST', 
+        mode: 'cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: text })
+      })
+        .then(response => response.json())
         .then(data => {
           scanCount++;
           document.getElementById('count').innerText = scanCount;
           const durum = data.durum || "";
           
           if (durum === "TAHAKKUK_LISTESINDE_YOK") {
-            // Kırmızı uyarı + uzun titreşim + bip
             status.className = "error";
-            status.innerText = "⚠️ " + text + " - Tahakkuk listesinde yok!";
+            status.innerText = "️ " + text + " - Tahakkuk listesinde yok!";
             if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 300]);
             playBeep(440, 400);
           } else if (durum === "TAHAKKUK_LISTESI_YOK") {
-            // Turuncu uyarı + farklı titreşim
             status.className = "warning";
-            status.innerText = "️ " + text + " - Bu ayın listesi henüz eklenmedi!";
+            status.innerText = "⚠️ " + text + " - Bu ayın listesi henüz eklenmedi!";
             if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
             playBeep(600, 200);
           } else {
-            // Normal yeşil onay
             status.className = "success";
             status.innerText = "✅ " + text;
             if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
@@ -117,7 +120,15 @@
           
           setTimeout(() => { scanning = true; btn.disabled = false; status.className = "info"; status.innerText = "Sıradaki öğrenci..."; scanLoop(); }, 1500);
         })
-        .catch(() => { status.className = "error"; status.innerText = "❌ Bağlantı hatası!"; setTimeout(() => { scanning = true; btn.disabled = false; scanLoop(); }, 2000); });
+        .catch(err => { 
+          // Bağlantı hatası durumunda yine de kaydetmiş olabilir, uyarı göster
+          scanCount++;
+          document.getElementById('count').innerText = scanCount;
+          status.className = "error"; 
+          status.innerText = "⚠️ " + text + " - Bağlantı hatası (kaydedilmiş olabilir)"; 
+          if (navigator.vibrate) navigator.vibrate([300, 100, 300]);
+          setTimeout(() => { scanning = true; btn.disabled = false; scanLoop(); }, 2000); 
+        });
     }
   </script>
 </body>

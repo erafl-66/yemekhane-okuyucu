@@ -17,6 +17,7 @@
     #status { margin: 15px auto; font-size: 1.1em; font-weight: bold; padding: 12px; border-radius: 8px; max-width: 350px; min-height: 20px; }
     .success { color: #155724; background: #d4edda; }
     .error { color: #721c24; background: #f8d7da; }
+    .warning { color: #856404; background: #fff3cd; }
     .info { color: #004085; background: #cce5ff; }
     .processing { color: #856404; background: #fff3cd; }
     button { margin-top: 10px; padding: 15px 30px; font-size: 1.1em; background: #28a745; color: white; border: none; border-radius: 8px; width: 100%; max-width: 350px; font-weight: bold; }
@@ -33,12 +34,28 @@
   </div>
   <canvas id="canvas"></canvas>
   <div id="status" class="info">Başlat butonuna basın</div>
-  <button id="btn" onclick="toggleScan()">📷 Taramayı Başlat</button>
+  <button id="btn" onclick="toggleScan()"> Taramayı Başlat</button>
   <div class="counter">Bugün okunan: <b id="count">0</b> öğrenci</div>
 
   <script>
-    const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyLat23k1wrMMHox3LE0PFZuJDufz9S8Y5J952usn-ooAG6TTur7BTO3UQGbZqH-5em/exec";
+    const SCRIPT_URL = "BURAYA_APPS_SCRIPT_URL";
     let video, canvas, context, scanning = false, animationId, scanCount = 0, lastScanTime = 0;
+    
+    // Bip sesi çal
+    function playBeep(frequency, duration) {
+      try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        oscillator.frequency.value = frequency;
+        oscillator.type = 'sine';
+        gainNode.gain.value = 0.3;
+        oscillator.start();
+        setTimeout(() => oscillator.stop(), duration);
+      } catch(e) {}
+    }
     
     function toggleScan() {
       if (!scanning) startCamera();
@@ -52,7 +69,7 @@
       status.className = "info"; status.innerText = "Kamera açılıyor...";
       navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 15 } }, audio: false })
         .then(stream => { video.srcObject = stream; video.play().then(() => { scanning = true; btn.innerText = "⏹️ Durdur"; status.className = "info"; status.innerText = "QR kodu çerçeveye oturtun..."; scanLoop(); }).catch(err => { status.className = "error"; status.innerText = "Video hatası: " + err.message; }); })
-        .catch(err => { status.className = "error"; status.innerText = "❌ Kamera izni reddedildi! Ayarlar > Safari > Kamera > İzin Ver"; btn.innerText = " Taramayı Başlat"; });
+        .catch(err => { status.className = "error"; status.innerText = "❌ Kamera izni reddedildi!"; btn.innerText = "📷 Taramayı Başlat"; });
     }
     
     function stopCamera() { scanning = false; if (animationId) cancelAnimationFrame(animationId); if (video && video.srcObject) { video.srcObject.getTracks().forEach(t => t.stop()); video.srcObject = null; } }
@@ -72,7 +89,34 @@
       const status = document.getElementById('status'), btn = document.getElementById('btn');
       scanning = false; btn.disabled = true; status.className = "processing"; status.innerText = "⏳ Kaydediliyor...";
       fetch(SCRIPT_URL, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: text }) })
-        .then(() => { scanCount++; document.getElementById('count').innerText = scanCount; status.className = "success"; status.innerText = "✅ " + text; if (navigator.vibrate) navigator.vibrate([100, 50, 100]); setTimeout(() => { scanning = true; btn.disabled = false; status.className = "info"; status.innerText = "Sıradaki öğrenci..."; scanLoop(); }, 1200); })
+        .then(response => response.json().catch(() => ({status: "success", durum: "", metin: text})))
+        .then(data => {
+          scanCount++;
+          document.getElementById('count').innerText = scanCount;
+          const durum = data.durum || "";
+          
+          if (durum === "TAHAKKUK_LISTESINDE_YOK") {
+            // Kırmızı uyarı + uzun titreşim + bip
+            status.className = "error";
+            status.innerText = "⚠️ " + text + " - Tahakkuk listesinde yok!";
+            if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 300]);
+            playBeep(440, 400);
+          } else if (durum === "TAHAKKUK_LISTESI_YOK") {
+            // Turuncu uyarı + farklı titreşim
+            status.className = "warning";
+            status.innerText = "️ " + text + " - Bu ayın listesi henüz eklenmedi!";
+            if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+            playBeep(600, 200);
+          } else {
+            // Normal yeşil onay
+            status.className = "success";
+            status.innerText = "✅ " + text;
+            if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+            playBeep(800, 100);
+          }
+          
+          setTimeout(() => { scanning = true; btn.disabled = false; status.className = "info"; status.innerText = "Sıradaki öğrenci..."; scanLoop(); }, 1500);
+        })
         .catch(() => { status.className = "error"; status.innerText = "❌ Bağlantı hatası!"; setTimeout(() => { scanning = true; btn.disabled = false; scanLoop(); }, 2000); });
     }
   </script>
